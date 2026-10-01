@@ -1,0 +1,108 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>THE HOLLOW</title>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:Georgia,serif;color:#a33}
+canvas{width:100vw;height:100vh;image-rendering:pixelated;display:block}
+#v{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 20%,#000 82%)}
+#r{position:fixed;inset:0;pointer-events:none;background:#900;opacity:0;mix-blend-mode:multiply}
+#hud{position:fixed;left:18px;top:14px;font-size:18px;letter-spacing:3px;opacity:.75}
+#bar{width:120px;height:4px;background:#200;margin-top:6px}#bar i{display:block;height:100%;background:#a33}
+#hint{position:fixed;bottom:60px;width:100%;text-align:center;font-size:20px;letter-spacing:2px;color:#966;text-shadow:0 0 8px #000}
+#ov{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.93);text-align:center;cursor:pointer;padding:20px}
+h1{font-size:64px;letter-spacing:14px;margin:0 0 20px;color:#800;text-shadow:0 0 25px #500}
+p{color:#777;max-width:540px;line-height:1.7}b{color:#a44}
+</style></head><body>
+<canvas id="c"></canvas><div id="r"></div><div id="v"></div>
+<div id="hud"><span id="pg"></span><div id="bar"><i id="st"></i></div></div><div id="hint"></div>
+<div id="ov"><h1 id="t">THE HOLLOW</h1><p id="d"></p><p><b>[ CLICK TO ENTER ]</b></p></div>
+<script>
+const W=320,H=180,cv=document.getElementById('c'),ctx=cv.getContext('2d');cv.width=W;cv.height=H;
+const img=ctx.createImageData(W,H),buf=img.data,zb=new Float32Array(W),N=21,$=id=>document.getElementById(id);
+let map,px,py,pa,mx,my,pages,items,stam,state=0,time,caught,path=[],pathT,flick=0,ac,master,heartT=0,stepT=0,ambT=8,screechT=0,msgT=0,shown=0,last=performance.now(),keys={},dg=0;
+const INTRO='You wake in the dark. Something is in here with you.<br><br>Find <b>5 pages</b>, then reach the <b>light</b> to escape.<br><br><b>WASD</b> move &nbsp; <b>MOUSE</b> look &nbsp; <b>SHIFT</b> run<br>Headphones recommended. Do not run out of breath.';
+function show(t,d){$('t').textContent=t;$('d').innerHTML=d;$('ov').style.display='flex'}
+function say(s,t=3){$('hint').textContent=s;msgT=t}
+function gen(){map=[];for(let y=0;y<N;y++)map.push(new Array(N).fill(1));const st=[[1,1]];map[1][1]=0;
+while(st.length){const[x,y]=st[st.length-1];const d=[[2,0],[-2,0],[0,2],[0,-2]].filter(([a,b])=>{const nx=x+a,ny=y+b;return nx>0&&ny>0&&nx<N-1&&ny<N-1&&map[ny][nx]});
+if(!d.length){st.pop();continue}const[a,b]=d[Math.random()*d.length|0];map[y+b/2][x+a/2]=0;map[y+b][x+a]=0;st.push([x+a,y+b])}
+for(let i=0;i<28;i++)map[1+(Math.random()*19|0)][1+(Math.random()*19|0)]=0}
+function start(){gen();px=1.5;py=1.5;pa=.8;pages=0;stam=1;caught=0;time=0;shown=0;items=[];pathT=0;path=[];mx=19.5;my=19.5;flick=0;dg=0;
+while(items.length<5){const x=1+(Math.random()*19|0),y=1+(Math.random()*19|0);if(!map[y][x]&&Math.hypot(x-1,y-1)>7&&!items.some(i=>i.x==x+.5&&i.y==y+.5))items.push({x:x+.5,y:y+.5})}
+state=1;say('Find the pages...',5)}
+function bfs(){const sx=mx|0,sy=my|0,tx=px|0,ty=py|0,S=sy*N+sx,T=ty*N+tx,prev=new Int16Array(N*N).fill(-1),q=[S];prev[S]=S;
+while(q.length){const c=q.shift();if(c==T)break;const x=c%N,y=c/N|0;for(const[a,b]of[[1,0],[-1,0],[0,1],[0,-1]]){const n=(y+b)*N+x+a;if(!map[y+b][x+a]&&prev[n]<0){prev[n]=c;q.push(n)}}}
+if(prev[T]<0)return;let c=T;const p=[];while(c!=S){p.push(c);c=prev[c]}p.reverse();path=p.map(c=>[c%N+.5,(c/N|0)+.5])}
+const can=(x,y,r=.2)=>!map[(y-r)|0][(x-r)|0]&&!map[(y-r)|0][(x+r)|0]&&!map[(y+r)|0][(x-r)|0]&&!map[(y+r)|0][(x+r)|0];
+function los(){const d=Math.hypot(mx-px,my-py),n=d*8|0;for(let i=1;i<n;i++){const t=i/n;if(map[(my+(py-my)*t)|0][(mx+(px-mx)*t)|0])return false}return true}
+/* AUDIO */
+function audio(){if(ac)return;ac=new(window.AudioContext||webkitAudioContext)();master=ac.createGain();master.gain.value=.8;master.connect(ac.destination);
+const lp=ac.createBiquadFilter();lp.frequency.value=170;lp.connect(master);
+[[41,'sawtooth'],[43.3,'sawtooth'],[82,'sine'],[27.5,'sine']].forEach(([f,t])=>{const o=ac.createOscillator();o.type=t;o.frequency.value=f;const g=ac.createGain();g.gain.value=.1;o.connect(g);g.connect(lp);o.start();
+const l=ac.createOscillator(),lg=ac.createGain();l.frequency.value=.05+Math.random()*.1;lg.gain.value=3;l.connect(lg);lg.connect(o.frequency);l.start()})}
+function tone(f,d,type,v,t0=0,sl){const o=ac.createOscillator(),g=ac.createGain(),t=ac.currentTime+t0;o.type=type;o.frequency.setValueAtTime(f,t);if(sl)o.frequency.exponentialRampToValueAtTime(sl,t+d);g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.001,t+d);o.connect(g);g.connect(master);o.start(t);o.stop(t+d)}
+function noise(d,v,fq){const b=ac.createBuffer(1,ac.sampleRate*d,ac.sampleRate),a=b.getChannelData(0);for(let i=0;i<a.length;i++)a[i]=Math.random()*2-1;const s=ac.createBufferSource();s.buffer=b;const f=ac.createBiquadFilter();f.type='bandpass';f.frequency.value=fq;const g=ac.createGain();g.gain.value=v;s.connect(f);f.connect(g);g.connect(master);s.start()}
+function ambient(){const r=Math.random();if(r<.3)tone(140+Math.random()*60,2.5,'sawtooth',.05,0,50+Math.random()*30);else if(r<.6)noise(1.5,.25,900+Math.random()*900);else if(r<.8){noise(.3,.9,300);tone(90,.8,'triangle',.3,0,60)}else{tone(2000,1.5,'sine',.03,0,1700);tone(2013,1.5,'sine',.03,0,1650)}}
+/* UPDATE */
+function update(dt){time+=dt;const k=keys,f=(k.KeyW||k.ArrowUp?1:0)-(k.KeyS||k.ArrowDown?1:0),s=(k.KeyD?1:0)-(k.KeyA?1:0);
+pa+=((k.ArrowRight?1:0)-(k.ArrowLeft?1:0))*2*dt;const mv=f||s,run=(k.ShiftLeft||k.ShiftRight)&&stam>0&&mv;
+stam=Math.max(0,Math.min(1,stam+(run?-.28:.12)*dt));const sp=run?3.6:2.1,l=Math.hypot(f,s)||1,vx=(Math.cos(pa)*f-Math.sin(pa)*s)/l*sp*dt,vy=(Math.sin(pa)*f+Math.cos(pa)*s)/l*sp*dt;
+if(can(px+vx,py))px+=vx;if(can(px,py+vy))py+=vy;
+if(mv&&ac){stepT-=dt;if(stepT<=0){stepT=run?.27:.46;noise(.07,.22,150+Math.random()*100)}}
+items=items.filter(i=>{if(Math.hypot(i.x-px,i.y-py)<.5){pages++;if(ac){tone(220,1.2,'sine',.25,0,110);noise(.4,.5,3000)}flick=.6;
+say(pages<5?['Page '+pages+'/5. Something heard that.','Page '+pages+'/5. It is getting closer.','Page '+pages+'/5. Do not stop.','Page '+pages+'/5. One more...'][Math.min(pages-1,3)]:'The way out has opened. Find the light.',4);return false}return true});
+if(pages==5&&Math.hypot(19.5-px,1.5-py)<.7){state=3;document.exitPointerLock();show('YOU ESCAPED','...or did you?<br>You can still hear it breathing behind you.');return}
+pathT-=dt;if(pathT<=0){bfs();pathT=.3}
+const t=path[0]||[px,py],dx=t[0]-mx,dy=t[1]-my,d=Math.hypot(dx,dy),msp=1.3+pages*.4;
+if(d<.08&&path.length)path.shift();else if(d>0){mx+=dx/d*msp*dt;my+=dy/d*msp*dt}
+const md=Math.hypot(mx-px,my-py);dg=Math.max(0,1-md/8);
+heartT-=dt;if(heartT<=0&&ac){heartT=.95-dg*.65;tone(55,.18,'sine',.4+dg*.8,0,30);tone(48,.18,'sine',.3+dg*.6,.2,28)}
+flick-=dt;if(flick<=0&&Math.random()<dt*(.12+dg*3))flick=.1+Math.random()*.35;
+ambT-=dt;if(ambT<=0&&ac){ambT=5+Math.random()*10;ambient()}
+screechT-=dt;if(screechT<=0&&md<6&&los()){screechT=14;if(ac){tone(1100,1,'sawtooth',.14,0,350);noise(.8,.4,2500)}flick=.8;say('It sees you.',2)}
+if(md<.6){state=2;caught=0;document.exitPointerLock();if(ac){noise(1.6,1.4,1400);tone(300,1.2,'sawtooth',.7,0,70);tone(1500,1,'square',.3,0,400);tone(60,2,'sawtooth',.8,0,30)}}}
+/* RENDER */
+const hs=(a,b)=>((Math.imul(a|0,73856093)^Math.imul(b|0,19349663))>>>0)%100/100;
+function render(){const dx=Math.cos(pa),dy=Math.sin(pa),pX=-dy*.66,pY=dx*.66,fl=flick>0?Math.random()*.35:1;
+for(let x=0;x<W;x++){const cx=2*x/W-1,rdx=dx+pX*cx,rdy=dy+pY*cx;let mX=px|0,mY=py|0;const ddx=Math.abs(1/rdx),ddy=Math.abs(1/rdy);let sx,sy,sdx,sdy,side=0;
+if(rdx<0){sx=-1;sdx=(px-mX)*ddx}else{sx=1;sdx=(mX+1-px)*ddx}if(rdy<0){sy=-1;sdy=(py-mY)*ddy}else{sy=1;sdy=(mY+1-py)*ddy}
+while(!map[mY][mX]){if(sdx<sdy){sdx+=ddx;mX+=sx;side=0}else{sdy+=ddy;mY+=sy;side=1}}
+const perp=side?sdy-ddy:sdx-ddx;zb[x]=perp;let wx=side?px+perp*rdx:py+perp*rdy;wx-=Math.floor(wx);
+const lh=H/perp,top=H/2-lh/2,bot=H/2+lh/2,ddX=(x/W-.5)*2;
+for(let y=0;y<H;y++){let r,g,b,dist;
+if(y>=top&&y<bot){dist=perp;const u=wx*8,v=(y-top)/lh*8,row=Math.floor(v),u2=u+(row&1)*.5,bx=u2%1,by=v%1,mortar=bx<.1||by<.14,n=hs(Math.floor(u2)+mX*7+(side*13),row+mY*5);
+let c=mortar?.18:.45+.55*n;if(hs(mX*31+mY*17+Math.floor(wx*3),side)>.78)c*=.45;
+r=c*125;g=c*88;b=c*72;if(side){r*=.8;g*=.8;b*=.8}}
+else{const rd=(H/2)/Math.abs(y-H/2);dist=rd;const fx=px+rdx*rd,fy=py+rdy*rd;
+if(y>H/2){const t=(Math.floor(fx*2)+Math.floor(fy*2))&1,n=hs(Math.floor(fx*8),Math.floor(fy*8)),c=(.22+.16*t)*(.6+.4*n);r=c*100;g=c*95;b=c*90;if(hs(Math.floor(fx*.7),Math.floor(fy*.7))>.9){r=70;g=8;b=8}}else{const n=hs(Math.floor(fx*4),Math.floor(fy*4));r=g=b=(.2+.1*n)*60}}
+const dyy=(y/H-.5)*2,cone=Math.max(0,1-(ddX*ddX*.9+dyy*dyy*1.7)),L=.012+fl*cone*Math.exp(-dist*.3)*1.5,nz=(Math.random()-.5)*7,i=(y*W+x)*4;
+buf[i]=Math.max(0,r*L+nz);buf[i+1]=Math.max(0,g*L+nz);buf[i+2]=Math.max(0,b*L+nz);buf[i+3]=255}}
+ctx.putImageData(img,0,0);sprites(dx,dy,pX,pY,fl)}
+function sprites(dx,dy,pX,pY,fl){const inv=1/(pX*dy-dx*pY),S=[...items.map(i=>({x:i.x,y:i.y,t:0})),{x:mx,y:my,t:1}];if(pages==5)S.push({x:19.5,y:1.5,t:2});
+S.forEach(s=>{const rx=s.x-px,ry=s.y-py;s.ty=inv*(-pY*rx+pX*ry);s.tx=inv*(dy*rx-dx*ry)});
+S.filter(s=>s.ty>.15).sort((a,b)=>b.ty-a.ty).forEach(s=>{const sx=W/2*(1+s.tx/s.ty),u=H/s.ty,ddX=(sx/W-.5)*2;
+const lt=ys=>{const dyy=(ys/H-.5)*2;return .02+fl*Math.max(0,1-(ddX*ddX*.9+dyy*dyy*1.7))*Math.exp(-s.ty*.3)*1.5};
+if(s.t==0){const sw=.35*u,sh=.45*u,ys=H/2+.1*u+Math.sin(time*2+s.x)*u*.03,L=Math.min(1,Math.max(lt(ys),.25*Math.exp(-s.ty*.25)));
+for(let x=Math.max(0,sx-sw/2|0);x<Math.min(W,sx+sw/2);x++){if(zb[x]<s.ty)continue;ctx.fillStyle=`rgb(${230*L|0},${225*L|0},${200*L|0})`;ctx.fillRect(x,ys-sh/2,1,sh);
+ctx.fillStyle=`rgba(0,0,0,${.6*L+.2})`;for(let k=1;k<5;k++)ctx.fillRect(x,ys-sh/2+sh*k/5,1,Math.max(1,sh/18))}}
+else if(s.t==2){const sw=.6*u,sh=1.4*u,a=.45+.2*Math.sin(time*3);for(let x=Math.max(0,sx-sw/2|0);x<Math.min(W,sx+sw/2);x++){if(zb[x]<s.ty)continue;ctx.fillStyle=`rgba(190,230,210,${a})`;ctx.fillRect(x,H/2+.5*u-sh,1,sh)}}
+else{const sw=.8*u,sh=1.25*u,top=H/2-.75*u,L=lt(H/2);
+for(let x=Math.max(0,sx-sw/2|0);x<Math.min(W,sx+sw/2);x++){if(zb[x]<s.ty)continue;const uu=(x-(sx-sw/2))/sw,a=Math.abs(uu-.5);if(a>.46)continue;
+const yt=top+sh*(a<.15?0:.2+(a-.15)*.5),yb=top+sh*(a<.22?1:.92),c=Math.min(90,L*160)+4;ctx.fillStyle=`rgb(${c},${c*.9|0},${c*.9|0})`;ctx.fillRect(x,yt,1,yb-yt);
+if(s.ty<10&&a>.05&&a<.17){ctx.fillStyle=`rgb(255,${20+Math.random()*30|0},0)`;ctx.fillRect(x,top+sh*.1,1,Math.max(1,sh*.05))}
+if(s.ty<3.5&&a<.08&&(x&1)){ctx.fillStyle='#bbb';ctx.fillRect(x,top+sh*.2,1,sh*.07)}}}})}
+function scare(){ctx.save();ctx.fillStyle=Math.random()<.3?'#400':'#000';ctx.fillRect(0,0,W,H);ctx.translate(W/2+(Math.random()-.5)*14,H/2+(Math.random()-.5)*14);const k=1+Math.min(caught,.5)*2.2;ctx.scale(k,k);
+ctx.fillStyle='#a9a496';ctx.beginPath();ctx.ellipse(0,0,45,64,0,0,7);ctx.fill();ctx.fillStyle='#000';
+for(const e of[-18,18]){ctx.beginPath();ctx.ellipse(e,-15,12,19,0,0,7);ctx.fill()}ctx.fillStyle='#f00';ctx.fillRect(-21,-14,5,5);ctx.fillRect(16,-14,5,5);
+ctx.fillStyle='#000';ctx.beginPath();ctx.ellipse(0,30,27,24,0,0,7);ctx.fill();ctx.fillStyle='#ddd';
+for(let i=-5;i<=5;i++){ctx.beginPath();ctx.moveTo(i*5-2.5,10);ctx.lineTo(i*5+2.5,10);ctx.lineTo(i*5,20+(i&1)*8);ctx.fill();ctx.beginPath();ctx.moveTo(i*5-2.5,52);ctx.lineTo(i*5+2.5,52);ctx.lineTo(i*5,42-(i&1)*7);ctx.fill()}ctx.restore()}
+/* LOOP */
+function loop(n){const dt=Math.min(.05,(n-last)/1e3);last=n;
+if(state==1){update(dt);if(msgT>0){msgT-=dt;if(msgT<=0)$('hint').textContent=''}$('pg').textContent='PAGES '+pages+' / 5';$('st').style.width=stam*100+'%';$('r').style.opacity=dg*.4*(.7+.3*Math.sin(time*9))}
+if(state==2){caught+=dt;scare();$('r').style.opacity=.5;if(caught>1.8&&!shown){shown=1;show('YOU DIED','It found you.')}}else render();
+requestAnimationFrame(loop)}
+/* INPUT */
+addEventListener('keydown',e=>{keys[e.code]=1;if(e.code.startsWith('Arrow'))e.preventDefault()});addEventListener('keyup',e=>keys[e.code]=0);
+document.addEventListener('mousemove',e=>{if(state==1&&document.pointerLockElement)pa+=e.movementX*.0025});
+$('ov').onclick=()=>{audio();if(ac.state=='suspended')ac.resume();if(state>=2)start();state=1;$('ov').style.display='none';cv.requestPointerLock&&cv.requestPointerLock()};
+document.addEventListener('pointerlockchange',()=>{if(!document.pointerLockElement&&state==1){state=0;show('PAUSED','It is still waiting.')}});
+start();state=0;show('THE HOLLOW',INTRO);requestAnimationFrame(loop);
+</script></body></html>
